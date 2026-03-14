@@ -142,6 +142,20 @@ void UART_ProcessInput(void)
                              HAL_GetTick());
                     UART_SendString(info);
                 }
+                else if (strcmp(cmd_buffer, "CLK") == 0)
+                {
+                    char buf[256];
+                    snprintf(buf, sizeof(buf),
+                             "SYSCLK: %ld MHz\r\n"
+                             "HCLK:   %ld MHz\r\n"
+                             "PCLK1:  %ld MHz (APB1)\r\n"
+                             "PCLK2:  %ld MHz (APB2)\r\n",
+                             HAL_RCC_GetSysClockFreq() / 1000000,
+                             HAL_RCC_GetHCLKFreq() / 1000000,
+                             HAL_RCC_GetPCLK1Freq() / 1000000,
+                             HAL_RCC_GetPCLK2Freq() / 1000000);
+                    UART_SendString(buf);
+                }
                 // Неизвестная команда
                 else
                 {

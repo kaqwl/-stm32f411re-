@@ -97,5 +97,8 @@ arm-none-eabi-strings build/nucleo-blink.bin | grep "Error"
 │ ar         │ Работа с .a библиотеками  │ -t (list), -x (extract), -tv (verbose)               │
 └────────────┴───────────────────────────┴──────────────────────────────────────────────────────┘
 
-# Подключится к порту
+# Подключится к порту 115200 или 57600
 picocom -b 115200 /dev/ttyACM0
+
+# Разпиновка
+https://os.mbed.com/platforms/ST-Nucleo-F411RE/
