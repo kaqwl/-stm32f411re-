@@ -43,20 +43,23 @@ HAL_SOURCES = $(HAL_SRC)/stm32f4xx_hal.c \
               $(HAL_SRC)/stm32f4xx_hal_uart.c \
               $(HAL_SRC)/stm32f4xx_hal_usart.c \
               $(HAL_SRC)/stm32f4xx_hal_dma.c \
-              $(HAL_SRC)/stm32f4xx_hal_dma_ex.c
+              $(HAL_SRC)/stm32f4xx_hal_dma_ex.c \
+              $(HAL_SRC)/stm32f4xx_hal_tim.c \
+              $(HAL_SRC)/stm32f4xx_hal_tim_ex.c
+
 
 STARTUP_FILE = $(CMSIS_DIR)/CMSIS/Device/ST/STM32F4xx/Source/Templates/gcc/startup_stm32f411xe.s
 
-# USB пути
-USB_CORE_DIR = libs/STM32CubeF4/Middlewares/ST/STM32_USB_Device_Library/Core
-USB_CLASS_DIR = libs/STM32CubeF4/Middlewares/ST/STM32_USB_Device_Library/Class/CDC
+# # USB пути
+# USB_CORE_DIR = libs/STM32CubeF4/Middlewares/ST/STM32_USB_Device_Library/Core
+# USB_CLASS_DIR = libs/STM32CubeF4/Middlewares/ST/STM32_USB_Device_Library/Class/CDC
 
-# USB исходники
-USB_SOURCES = $(USB_CORE_DIR)/Src/usbd_core.c \
-              $(USB_CORE_DIR)/Src/usbd_ctlreq.c \
-              $(USB_CORE_DIR)/Src/usbd_ioreq.c \
-              $(USB_CLASS_DIR)/Src/usbd_cdc.c \
-              $(USB_CLASS_DIR)/Src/usbd_cdc_if.c
+# # USB исходники
+# USB_SOURCES = $(USB_CORE_DIR)/Src/usbd_core.c \
+#               $(USB_CORE_DIR)/Src/usbd_ctlreq.c \
+#               $(USB_CORE_DIR)/Src/usbd_ioreq.c \
+#               $(USB_CLASS_DIR)/Src/usbd_cdc.c \
+#               $(USB_CLASS_DIR)/Src/usbd_cdc_if.c
 
 # Объединяем всё вместе
 ALL_SOURCES = $(SOURCES) $(HAL_SOURCES) $(STARTUP_FILE) $(STARTUP_FILE)

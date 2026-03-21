@@ -22,7 +22,8 @@
 #include "stm32f4xx_hal.h"
 #include "uart.h"
 #include <stdio.h>
-
+#include "system_time.h"
+#include "timer4_time.h"
 /** @addtogroup STM32F4xx_HAL_Examples
  * @{
  */
@@ -59,8 +60,14 @@ int main(void)
      */
   HAL_Init();
   SystemClock_Config();
-
   UART_Init();
+
+  /* Получаем частоту TIM4 (APB1) */
+  uint32_t prescaler = 99;
+  uint32_t period = 999;
+  /* Инициализируем TIM4 */
+  TIM4_Time_Init(prescaler, period);
+
   UART_StartReceive();
 
   /*##-1- Enable GPIOA Clock (to be able to program the configuration registers) */
@@ -74,7 +81,11 @@ int main(void)
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   last_tick = HAL_GetTick();
+  uint32_t last_blink = SystemTime_GetMs();
   // int counter = 0;
+
+  // uint32_t last_systick = SystemTime_GetMs();
+  uint32_t last_tim4 = TIM4_Time_GetMs();
   while (1)
   {
     UART_ProcessInput();
@@ -93,6 +104,18 @@ int main(void)
       // UART_SendString(msg);
 
       // HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+    }
+
+    // if (SystemTime_IsElapsed(last_blink, 1000))
+    // {
+    //   HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+    //   last_blink = SystemTime_GetMs();
+    // }
+
+    if (TIM4_Time_IsElapsed(last_tim4, 1000))
+    {
+      HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+      last_tim4 = TIM4_Time_GetMs();
     }
   }
 }

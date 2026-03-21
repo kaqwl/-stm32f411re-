@@ -5,7 +5,8 @@ arm-none-eabi-gcc
     arm-none-eabi-gcc --version
 gdb-arm-none-eabi
     gdb-multiarch --version
-
+xpm
+    xpm --version
 
 # 1. Добавьте submodule
 git submodule add https://github.com/STMicroelectronics/STM32CubeF4.git libs/STM32CubeF4
@@ -31,7 +32,7 @@ git submodule status
 # 3. Проверьте .gitmodules
 cat .gitmodules
 
-# Должна быть запись про libs/STM32CubeF4 !!!!
+# Должна быть запись про libs/STM32CubeF4 !!!!!!!
 git submodule update --init --recursive libs/STM32CubeF4
 
 
@@ -98,7 +99,7 @@ arm-none-eabi-strings build/nucleo-blink.bin | grep "Error"
 └────────────┴───────────────────────────┴──────────────────────────────────────────────────────┘
 
 # Подключится к порту 115200 или 57600
-picocom -b 115200 /dev/ttyACM0
+picocom -b 57600 /dev/ttyACM0
 
 # Разпиновка
 https://os.mbed.com/platforms/ST-Nucleo-F411RE/
