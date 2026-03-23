@@ -20,8 +20,9 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "stm32f4xx_hal.h"
-#include "uart.h"
+#include "uart_dma.h"
 #include <stdio.h>
+#include <string.h>
 #include "system_time.h"
 #include "timer4_time.h"
 /** @addtogroup STM32F4xx_HAL_Examples
@@ -43,6 +44,39 @@ static uint32_t last_tick = 0;
 static void SystemClock_Config(void);
 static void Error_Handler(void);
 
+/* Функция обработки полученного байта */
+void handle_uart_data(uint8_t byte)
+{
+  static uint8_t buffer[256];
+  static uint16_t index = 0;
+
+  UART_Send(&byte, 1);
+  if (byte == '\n' || byte == '\r')
+  {
+    buffer[index] = '\0';
+    if (index > 0)
+    {
+      /* Обработка строки */
+      if (strcmp((char *)buffer, "LED") == 0)
+      {
+        HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+        UART_Print("[OK] LED toggled\r\n");
+      }
+      else
+      {
+        UART_Print("Received: ");
+        UART_Print((char *)buffer);
+        UART_Print("\r\n");
+      }
+    }
+    index = 0;
+  }
+  else if (index < sizeof(buffer) - 1)
+  {
+    buffer[index++] = byte;
+  }
+}
+
 /* Private functions ---------------------------------------------------------*/
 
 /**
@@ -60,7 +94,8 @@ int main(void)
      */
   HAL_Init();
   SystemClock_Config();
-  UART_Init();
+  UART_DMA_Init();
+  UART_SetCallback(handle_uart_data);
 
   /* Получаем частоту TIM4 (APB1) */
   uint32_t prescaler = 99;
@@ -68,7 +103,7 @@ int main(void)
   /* Инициализируем TIM4 */
   TIM4_Time_Init(prescaler, period);
 
-  UART_StartReceive();
+  // UART_StartReceive();
 
   /*##-1- Enable GPIOA Clock (to be able to program the configuration registers) */
   __HAL_RCC_GPIOA_CLK_ENABLE();
@@ -81,14 +116,17 @@ int main(void)
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   last_tick = HAL_GetTick();
-  uint32_t last_blink = SystemTime_GetMs();
+  // uint32_t last_blink = SystemTime_GetMs();
   // int counter = 0;
 
   // uint32_t last_systick = SystemTime_GetMs();
   uint32_t last_tim4 = TIM4_Time_GetMs();
   while (1)
   {
-    UART_ProcessInput();
+    // UART_ProcessInput();
+    UART_Process();
+    // UART_ProcessLines();
+
     uint32_t current_tick = HAL_GetTick();
     uint8_t tick = 0;
     if (current_tick - last_tick >= 1000)
@@ -114,7 +152,7 @@ int main(void)
 
     if (TIM4_Time_IsElapsed(last_tim4, 1000))
     {
-      HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+      // HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
       last_tim4 = TIM4_Time_GetMs();
     }
   }
