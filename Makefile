@@ -45,7 +45,9 @@ HAL_SOURCES = $(HAL_SRC)/stm32f4xx_hal.c \
               $(HAL_SRC)/stm32f4xx_hal_dma.c \
               $(HAL_SRC)/stm32f4xx_hal_dma_ex.c \
               $(HAL_SRC)/stm32f4xx_hal_tim.c \
-              $(HAL_SRC)/stm32f4xx_hal_tim_ex.c
+              $(HAL_SRC)/stm32f4xx_hal_tim_ex.c \
+              $(HAL_SRC)/stm32f4xx_hal_adc.c \
+              $(HAL_SRC)/stm32f4xx_hal_adc_ex.c
 
 
 STARTUP_FILE = $(CMSIS_DIR)/CMSIS/Device/ST/STM32F4xx/Source/Templates/gcc/startup_stm32f411xe.s

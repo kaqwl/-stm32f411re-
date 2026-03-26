@@ -25,6 +25,7 @@
 #include <string.h>
 #include "system_time.h"
 #include "timer4_time.h"
+#include "adc_dma.h"
 /** @addtogroup STM32F4xx_HAL_Examples
  * @{
  */
@@ -77,6 +78,28 @@ void handle_uart_data(uint8_t byte)
   }
 }
 
+static void ProcessADCData(void)
+{
+    // uint32_t current_time;
+    // uint32_t voltage_mv;
+    // uint16_t raw_value;
+    uint16_t avg_value;
+    
+    // Проверяем, есть ли новые данные
+    if (adc_data_ready) {
+        // Сбрасываем флаг
+        adc_data_ready = 0;
+        
+        // Получаем значения
+        // raw_value = ADC_GetRawValue();
+        avg_value = ADC_GetAverageValue();
+        // voltage_mv = ADC_GetVoltage_mV();
+        char str[20];
+        sprintf(str, "avg_value = %d\r\n", avg_value);
+        UART_Print(str);
+    }    
+}
+
 /* Private functions ---------------------------------------------------------*/
 
 /**
@@ -96,6 +119,9 @@ int main(void)
   SystemClock_Config();
   UART_DMA_Init();
   UART_SetCallback(handle_uart_data);
+
+  ADC_DMA_Init();
+  ADC_DMA_Start();
 
   /* Получаем частоту TIM4 (APB1) */
   uint32_t prescaler = 99;
@@ -126,6 +152,7 @@ int main(void)
     // UART_ProcessInput();
     UART_Process();
     // UART_ProcessLines();
+    ProcessADCData();
 
     uint32_t current_tick = HAL_GetTick();
     uint8_t tick = 0;
