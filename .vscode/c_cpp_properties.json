@@ -4,6 +4,7 @@
             "name": "STM32",
             "includePath": [
                 "${workspaceFolder}/**",
+                "${workspaceFolder}/libs/STM32CubeF4/Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM4F",
                 "${workspaceFolder}/libs/STM32CubeF4/Drivers/CMSIS/Include",
                 "${workspaceFolder}/libs/STM32CubeF4/Drivers/CMSIS/Device/ST/STM32F4xx/Include",
                 "${workspaceFolder}/libs/STM32CubeF4/Drivers/STM32F4xx_HAL_Driver/Inc"
@@ -14,6 +15,7 @@
                 "STM32",
                 "__STM32__",
                 "DEBUG",
+                "HAL_UART_MODULE_ENABLED",
                 "__weak=__attribute__((weak))",
                 "__packed=__attribute__((__packed__))"
             ],

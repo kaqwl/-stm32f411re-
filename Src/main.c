@@ -20,6 +20,9 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "stm32f4xx_hal.h"
+#include "FreeRTOS.h"
+#include "task.h"
+#include "timers.h"
 #include "uart_dma.h"
 #include <stdio.h>
 #include <string.h>
@@ -80,25 +83,39 @@ void handle_uart_data(uint8_t byte)
 
 static void ProcessADCData(void)
 {
-    // uint32_t current_time;
-    // uint32_t voltage_mv;
-    // uint16_t raw_value;
-    uint16_t avg_value;
-    
-    // Проверяем, есть ли новые данные
-    if (adc_data_ready) {
-        // Сбрасываем флаг
-        adc_data_ready = 0;
-        
-        // Получаем значения
-        // raw_value = ADC_GetRawValue();
-        avg_value = ADC_GetAverageValue();
-        // voltage_mv = ADC_GetVoltage_mV();
-        char str[20];
-        sprintf(str, "avg_value = %d\r\n", avg_value);
-        UART_Print(str);
-    }    
+  // uint32_t current_time;
+  // uint32_t voltage_mv;
+  // uint16_t raw_value;
+  uint16_t avg_value;
+
+  // Проверяем, есть ли новые данные
+  if (adc_data_ready)
+  {
+    // Сбрасываем флаг
+    adc_data_ready = 0;
+
+    // Получаем значения
+    // raw_value = ADC_GetRawValue();
+    avg_value = ADC_GetAverageValue();
+    // voltage_mv = ADC_GetVoltage_mV();
+    char str[20];
+    sprintf(str, "avg_value = %d\r\n", avg_value);
+    UART_Print(str);
+  }
 }
+
+/* Задачи FreeRTOS */
+void vLEDTask(void *pvParameters);
+void vBlinkTask(void *pvParameters);
+
+/* Глобальные переменные */
+TaskHandle_t xLEDTaskHandle = NULL;
+TimerHandle_t xBlinkTimer = NULL;
+
+/* Хуки FreeRTOS (опционально, если включены в конфиге) */
+void vApplicationIdleHook(void);
+void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName);
+void vApplicationMallocFailedHook(void);
 
 /* Private functions ---------------------------------------------------------*/
 
@@ -117,6 +134,7 @@ int main(void)
      */
   HAL_Init();
   SystemClock_Config();
+  HAL_NVIC_SetPriorityGrouping(NVIC_PRIORITYGROUP_4);
   UART_DMA_Init();
   UART_SetCallback(handle_uart_data);
 
@@ -140,6 +158,47 @@ int main(void)
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   GPIO_InitStruct.Speed = GPIO_SPEED_FAST;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /* 5. Проверка: светодиод мигает 3 раза - сигнал старта */
+  for (int i = 0; i < 3; i++)
+  {
+    HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+    HAL_Delay(200);
+    HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+    HAL_Delay(200);
+  }
+
+  /* Задача для мигания светодиодом */
+  BaseType_t result = xTaskCreate(
+      vLEDTask,       // функция задачи
+      "LED Task",     // имя задачи
+      128,            // размер стека в словах (128 * 4 = 512 байт)
+      NULL,           // параметры (нет)
+      2,              // приоритет (1 из 5, 0 - самый низкий)
+      &xLEDTaskHandle // хендл задачи (можно NULL, если не нужен)
+  );
+
+  if (result != pdPASS)
+  {
+    /* Ошибка создания - быстро мигаем */
+    while (1)
+    {
+      HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+      HAL_Delay(100);
+    }
+  }
+
+  /* Вторая задача с другим приоритетом (для демонстрации) */
+  // xTaskCreate(
+  //     vBlinkTask,
+  //     "Blink Task",
+  //     128,
+  //     NULL,
+  //     2, // более высокий приоритет, чем LED Task
+  //     NULL);
+
+  /* 5. Запуск планировщика FreeRTOS */
+  vTaskStartScheduler();
 
   last_tick = HAL_GetTick();
   // uint32_t last_blink = SystemTime_GetMs();
@@ -183,6 +242,91 @@ int main(void)
       last_tim4 = TIM4_Time_GetMs();
     }
   }
+}
+
+/**
+ * @brief  Задача: мигание светодиодом с периодом 500 мс
+ * @param  pvParameters: параметры задачи (не используются)
+ */
+void vLEDTask(void *pvParameters)
+{
+  // TickType_t xLastWakeTime;
+
+  /* Инициализация времени последнего пробуждения */
+  // xLastWakeTime = xTaskGetTickCount();
+
+  for (;;)
+  {
+    /* Переключение светодиода */
+    HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+
+    /* Задержка на 500 мс с использованием vTaskDelayUntil для точного периода */
+    vTaskDelay(500);
+    // taskYIELD();
+    // vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(500));
+
+    // for(volatile uint32_t i = 0; i < 500000; i++);
+
+    /* Альтернатива: простая задержка
+    vTaskDelay(pdMS_TO_TICKS(500));
+    */
+  }
+}
+
+/**
+ * @brief  Вторая задача: мигание с другой частотой (демонстрация работы)
+ * @param  pvParameters: параметры задачи (не используются)
+ */
+// void vBlinkTask(void *pvParameters)
+// {
+//   for (;;)
+//   {
+//     /* Эта задача имеет более высокий приоритет, чем vLEDTask,
+//        но vTaskDelay всё равно будет отдавать управление другим задачам */
+
+//     /* Здесь можно добавить логику, например, переключение другого пина */
+//     // HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+
+//     /* Задержка 1000 мс */
+//     vTaskDelay(pdMS_TO_TICKS(10));
+//     taskYIELD();
+//   }
+// }
+
+/**
+ * @brief  Хук для задачи Idle (вызывается, когда нет активных задач)
+ * @note   Требует configUSE_IDLE_HOOK = 1 в FreeRTOSConfig.h
+ */
+void vApplicationIdleHook(void)
+{
+  /* Можно добавить низкоприоритетные операции или переход в сон */
+  /* В нашем конфиге этот хук отключен, но оставим заглушку на будущее */
+}
+
+/**
+ * @brief  Хук переполнения стека (вызывается при обнаружении переполнения)
+ * @param  xTask: хендл задачи, где произошло переполнение
+ * @param  pcTaskName: имя задачи
+ * @note   Требует configCHECK_FOR_STACK_OVERFLOW = 1 или 2
+ */
+void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
+{
+  /* Останавливаем выполнение и ждем отладчика */
+  taskDISABLE_INTERRUPTS();
+  for (;;)
+    ;
+}
+
+/**
+ * @brief  Хук ошибки выделения памяти
+ * @note   Требует configUSE_MALLOC_FAILED_HOOK = 1
+ */
+void vApplicationMallocFailedHook(void)
+{
+  /* Останавливаем выполнение */
+  taskDISABLE_INTERRUPTS();
+  for (;;)
+    ;
 }
 
 /*

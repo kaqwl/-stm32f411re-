@@ -22,6 +22,12 @@
 #include "main.h"
 #include "stm32f4xx_it.h"
 #include "stm32f4xx_hal.h"
+#include "FreeRTOS.h"
+#include "task.h"
+
+extern void xPortSysTickHandler(void);
+// extern void vPortSVCHandler(void);
+// extern void xPortPendSVHandler(void);
 
 /** @addtogroup STM32F4xx_HAL_Examples
  * @{
@@ -103,14 +109,16 @@ void UsageFault_Handler(void)
   }
 }
 
-/**
- * @brief  This function handles SVCall exception.
- * @param  None
- * @retval None
- */
-void SVC_Handler(void)
-{
-}
+// /**
+//  * @brief  This function handles SVCall exception.
+//  * @param  None
+//  * @retval None
+//  */
+// void SVC_Handler(void)
+// {
+//   /* Передаем управление FreeRTOS */
+//   vPortSVCHandler();
+// }
 
 /**
  * @brief  This function handles Debug Monitor exception.
@@ -121,14 +129,16 @@ void DebugMon_Handler(void)
 {
 }
 
-/**
- * @brief  This function handles PendSVC exception.
- * @param  None
- * @retval None
- */
-void PendSV_Handler(void)
-{
-}
+// /**
+//  * @brief  This function handles PendSVC exception.
+//  * @param  None
+//  * @retval None
+//  */
+// void PendSV_Handler(void)
+// {
+//   /* Передаем управление FreeRTOS */
+//   xPortPendSVHandler();
+// }
 
 /**
  * @brief  This function handles SysTick Handler.
@@ -138,6 +148,11 @@ void PendSV_Handler(void)
 void SysTick_Handler(void)
 {
   HAL_IncTick();
+
+  if (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED)
+  {
+    xPortSysTickHandler();
+  }
 }
 
 /******************************************************************************/
