@@ -20,10 +20,16 @@
 #define configUSE_COUNTING_SEMAPHORES           1
 #define configUSE_QUEUE_SETS                    0
 #define configUSE_TASK_NOTIFICATIONS            1
+#define configUSE_NEWLIB_REENTRANT              1  // ДОБАВ: для printf/sprintf в задачах
+/* Настройки прерываний для STM32 */
+#define configSUPPORT_DYNAMIC_ALLOCATION        1  // ДОБАВ: явно включаем динамическое выделение
+#define configSUPPORT_STATIC_ALLOCATION         0  // ДОБАВЛЕНО: отключаем статическое
 
 /* Настройки прерываний для STM32 */
 #define configKERNEL_INTERRUPT_PRIORITY         15
 #define configMAX_SYSCALL_INTERRUPT_PRIORITY    5
+#define configLIBRARY_LOWEST_INTERRUPT_PRIORITY 15  // ДОБАВ: для совместимости с STM32
+#define configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY 5 // ДОБАВЛЕНО: уровень для ISR
 
 /* FPU */
 #define configENABLE_FPU                        1
@@ -42,6 +48,7 @@
 #define INCLUDE_vTaskDelay                      1
 #define INCLUDE_xTaskGetSchedulerState          1
 #define INCLUDE_xTaskGetCurrentTaskHandle       1
+#define INCLUDE_xSemaphoreGetMutexHolder        1   // ДОБАВ: может пригодиться для отладки
 
 /* Отключаем проверку установки обработчиков (используем косвенную маршрутизацию) */
 #define configCHECK_HANDLER_INSTALLATION        0

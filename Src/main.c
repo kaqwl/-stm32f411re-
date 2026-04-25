@@ -1,458 +1,168 @@
-/**
- ******************************************************************************
- * @file    GPIO/GPIO_IOToggle/Src/main.c
- * @author  MCD Application Team
- * @brief   This example describes how to configure and use GPIOs through
- *          the STM32F4xx HAL API.
- ******************************************************************************
- * @attention
- *
- * Copyright (c) 2017 STMicroelectronics.
- * All rights reserved.
- *
- * This software is licensed under terms that can be found in the LICENSE file
- * in the root directory of this software component.
- * If no LICENSE file comes with this software, it is provided AS-IS.
- *
- ******************************************************************************
- */
-
-/* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "stm32f4xx_hal.h"
 #include "FreeRTOS.h"
 #include "task.h"
-#include "timers.h"
-#include "uart_dma.h"
+#include "alarm_system.h"
+#include "esp8266.h"
 #include <stdio.h>
-#include <string.h>
-#include "system_time.h"
-#include "timer4_time.h"
-#include "adc_dma.h"
-/** @addtogroup STM32F4xx_HAL_Examples
- * @{
- */
+#include <sys/stat.h>
 
-/** @addtogroup GPIO_IOToggle
- * @{
- */
+UART_HandleTypeDef huart1;
 
-/* Private typedef -----------------------------------------------------------*/
-/* Private define ------------------------------------------------------------*/
-/* Private macro -------------------------------------------------------------*/
-/* Private variables ---------------------------------------------------------*/
-static GPIO_InitTypeDef GPIO_InitStruct;
-static uint32_t last_tick = 0;
+void SystemClock_Config(void);
+static void MX_GPIO_Init(void);
+static void MX_USART1_UART_Init(void);
 
-/* Private function prototypes -----------------------------------------------*/
-static void SystemClock_Config(void);
-static void Error_Handler(void);
-
-/* Функция обработки полученного байта */
-void handle_uart_data(uint8_t byte)
+// Перенаправление printf в UART
+int _write(int file, char *ptr, int len)
 {
-  static uint8_t buffer[256];
-  static uint16_t index = 0;
+    HAL_UART_Transmit(&huart1, (uint8_t*)ptr, len, 100);
+    return len;
+}
 
-  UART_Send(&byte, 1);
-  if (byte == '\n' || byte == '\r')
-  {
-    buffer[index] = '\0';
-    if (index > 0)
-    {
-      /* Обработка строки */
-      if (strcmp((char *)buffer, "LED") == 0)
-      {
-        HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
-        UART_Print("[OK] LED toggled\r\n");
-      }
-      else
-      {
-        UART_Print("Received: ");
-        UART_Print((char *)buffer);
-        UART_Print("\r\n");
-      }
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+    Alarm_EXTI_Callback(GPIO_Pin);
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    if(huart->Instance == USART1) {
+        Alarm_UART_Callback(huart);
     }
-    index = 0;
-  }
-  else if (index < sizeof(buffer) - 1)
-  {
-    buffer[index++] = byte;
-  }
 }
 
-static void ProcessADCData(void)
-{
-  // uint32_t current_time;
-  // uint32_t voltage_mv;
-  // uint16_t raw_value;
-  uint16_t avg_value;
-
-  // Проверяем, есть ли новые данные
-  if (adc_data_ready)
-  {
-    // Сбрасываем флаг
-    adc_data_ready = 0;
-
-    // Получаем значения
-    // raw_value = ADC_GetRawValue();
-    avg_value = ADC_GetAverageValue();
-    // voltage_mv = ADC_GetVoltage_mV();
-    char str[20];
-    sprintf(str, "avg_value = %d\r\n", avg_value);
-    UART_Print(str);
-  }
-}
-
-/* Задачи FreeRTOS */
-void vLEDTask(void *pvParameters);
-void vBlinkTask(void *pvParameters);
-
-/* Глобальные переменные */
-TaskHandle_t xLEDTaskHandle = NULL;
-TimerHandle_t xBlinkTimer = NULL;
-
-/* Хуки FreeRTOS (опционально, если включены в конфиге) */
-void vApplicationIdleHook(void);
-void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName);
-void vApplicationMallocFailedHook(void);
-
-/* Private functions ---------------------------------------------------------*/
-
-/**
- * @brief  Main program
- * @param  None
- * @retval None
- */
 int main(void)
 {
-  /* STM32F4xx HAL library initialization:
-       - Configure the Flash prefetch, instruction and Data caches
-       - Configure the Systick to generate an interrupt each 1 msec
-       - Set NVIC Group Priority to 4
-       - Global MSP (MCU Support Package) initialization
-     */
-  HAL_Init();
-  SystemClock_Config();
-  HAL_NVIC_SetPriorityGrouping(NVIC_PRIORITYGROUP_4);
-  UART_DMA_Init();
-  UART_SetCallback(handle_uart_data);
-
-  ADC_DMA_Init();
-  ADC_DMA_Start();
-
-  /* Получаем частоту TIM4 (APB1) */
-  uint32_t prescaler = 99;
-  uint32_t period = 999;
-  /* Инициализируем TIM4 */
-  TIM4_Time_Init(prescaler, period);
-
-  // UART_StartReceive();
-
-  /*##-1- Enable GPIOA Clock (to be able to program the configuration registers) */
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-
-  /*##-2- Configure PA05 IO in output push-pull mode to drive external LED ###*/
-  GPIO_InitStruct.Pin = GPIO_PIN_5;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FAST;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /* 5. Проверка: светодиод мигает 3 раза - сигнал старта */
-  for (int i = 0; i < 3; i++)
-  {
-    HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
-    HAL_Delay(200);
-    HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
-    HAL_Delay(200);
-  }
-
-  /* Задача для мигания светодиодом */
-  BaseType_t result = xTaskCreate(
-      vLEDTask,       // функция задачи
-      "LED Task",     // имя задачи
-      128,            // размер стека в словах (128 * 4 = 512 байт)
-      NULL,           // параметры (нет)
-      2,              // приоритет (1 из 5, 0 - самый низкий)
-      &xLEDTaskHandle // хендл задачи (можно NULL, если не нужен)
-  );
-
-  if (result != pdPASS)
-  {
-    /* Ошибка создания - быстро мигаем */
-    while (1)
-    {
-      HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
-      HAL_Delay(100);
+    HAL_Init();
+    SystemClock_Config();
+    HAL_NVIC_SetPriorityGrouping(NVIC_PRIORITYGROUP_4);
+    
+    MX_GPIO_Init();
+    MX_USART1_UART_Init();
+    
+    printf("\r\n=== STM32F411 Alarm System ===\r\n");
+    printf("SystemClock: %lu Hz\r\n", HAL_RCC_GetSysClockFreq());
+    
+    AlarmConfig_t alarm_config = {
+        .wifi_ssid = "YOUR_WIFI_SSID",        // ЗАМЕНИ НА СВОЙ WiFi
+        .wifi_password = "YOUR_WIFI_PASSWORD", // ЗАМЕНИ НА СВОЙ ПАРОЛЬ
+        .bot_token = "YOUR_BOT_TOKEN",         // ЗАМЕНИ НА ТОКЕН БОТА
+        .chat_id = "YOUR_CHAT_ID",             // ЗАМЕНИ НА CHAT ID
+        .cooldown_ms = 7000,                   // 7 секунд между тревогами
+        .max_retries = 3
+    };
+    
+    AlarmSystem_Init(&alarm_config);
+    ESP_Init(&huart1);
+    
+    MotionTask_Init();
+    AlarmTask_Init();
+    
+    uint8_t dummy;
+    HAL_UART_Receive_IT(&huart1, &dummy, 1);
+    
+    printf("Starting scheduler...\r\n");
+    vTaskStartScheduler();
+    
+    while(1) {
+        Error_Handler();
     }
-  }
+}
 
-  /* Вторая задача с другим приоритетом (для демонстрации) */
-  // xTaskCreate(
-  //     vBlinkTask,
-  //     "Blink Task",
-  //     128,
-  //     NULL,
-  //     2, // более высокий приоритет, чем LED Task
-  //     NULL);
+void SystemClock_Config(void)
+{
+    RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+    RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
-  /* 5. Запуск планировщика FreeRTOS */
-  vTaskStartScheduler();
+    __HAL_RCC_PWR_CLK_ENABLE();
+    __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
 
-  last_tick = HAL_GetTick();
-  // uint32_t last_blink = SystemTime_GetMs();
-  // int counter = 0;
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+    RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+    RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+    RCC_OscInitStruct.PLL.PLLM = 8;
+    RCC_OscInitStruct.PLL.PLLN = 200;
+    RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+    RCC_OscInitStruct.PLL.PLLQ = 4;
+    HAL_RCC_OscConfig(&RCC_OscInitStruct);
 
-  // uint32_t last_systick = SystemTime_GetMs();
-  uint32_t last_tim4 = TIM4_Time_GetMs();
-  while (1)
-  {
-    // UART_ProcessInput();
-    UART_Process();
-    // UART_ProcessLines();
-    ProcessADCData();
+    RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK
+                                | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
+    RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+    RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+    RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
+    RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+    HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3);
+}
 
-    uint32_t current_tick = HAL_GetTick();
-    uint8_t tick = 0;
-    if (current_tick - last_tick >= 1000)
-    {
-      last_tick = current_tick;
-      tick = 1;
+static void MX_GPIO_Init(void)
+{
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+
+    // PA5 - датчик движения HC-SR501 (вход с прерыванием)
+    GPIO_InitStruct.Pin = GPIO_PIN_5;
+    GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+    GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+    // PA15 - USART1 TX
+    GPIO_InitStruct.Pin = GPIO_PIN_15;
+    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FAST;
+    GPIO_InitStruct.Alternate = GPIO_AF7_USART1;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+    // PB7 - USART1 RX
+    GPIO_InitStruct.Pin = GPIO_PIN_7;
+    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
+    GPIO_InitStruct.Alternate = GPIO_AF7_USART1;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+    // Прерывание для PA5
+    HAL_NVIC_SetPriority(EXTI9_5_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+}
+
+static void MX_USART1_UART_Init(void)
+{
+    huart1.Instance = USART1;
+    huart1.Init.BaudRate = 115200;
+    huart1.Init.WordLength = UART_WORDLENGTH_8B;
+    huart1.Init.StopBits = UART_STOPBITS_1;
+    huart1.Init.Parity = UART_PARITY_NONE;
+    huart1.Init.Mode = UART_MODE_TX_RX;
+    huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+    huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+    HAL_UART_Init(&huart1);
+
+    HAL_NVIC_SetPriority(USART1_IRQn, 6, 0);
+    HAL_NVIC_EnableIRQ(USART1_IRQn);
+}
+
+void Error_Handler(void)
+{
+    __disable_irq();
+    while (1) {
+        // Мигаем светодиодом PA5 для индикации ошибки
+        HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+        HAL_Delay(100);
     }
-
-    if (tick)
-    {
-      // char msg[64];
-      // snprintf(msg, sizeof(msg), "Counter: %d\r\n", counter++);
-      // UART_SendString(msg);
-
-      // HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
-    }
-
-    // if (SystemTime_IsElapsed(last_blink, 1000))
-    // {
-    //   HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
-    //   last_blink = SystemTime_GetMs();
-    // }
-
-    if (TIM4_Time_IsElapsed(last_tim4, 1000))
-    {
-      // HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
-      last_tim4 = TIM4_Time_GetMs();
-    }
-  }
 }
 
-/**
- * @brief  Задача: мигание светодиодом с периодом 500 мс
- * @param  pvParameters: параметры задачи (не используются)
- */
-void vLEDTask(void *pvParameters)
-{
-  // TickType_t xLastWakeTime;
-
-  /* Инициализация времени последнего пробуждения */
-  // xLastWakeTime = xTaskGetTickCount();
-
-  for (;;)
-  {
-    /* Переключение светодиода */
-    HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
-
-    /* Задержка на 500 мс с использованием vTaskDelayUntil для точного периода */
-    vTaskDelay(500);
-    // taskYIELD();
-    // vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(500));
-
-    // for(volatile uint32_t i = 0; i < 500000; i++);
-
-    /* Альтернатива: простая задержка
-    vTaskDelay(pdMS_TO_TICKS(500));
-    */
-  }
-}
-
-/**
- * @brief  Вторая задача: мигание с другой частотой (демонстрация работы)
- * @param  pvParameters: параметры задачи (не используются)
- */
-// void vBlinkTask(void *pvParameters)
-// {
-//   for (;;)
-//   {
-//     /* Эта задача имеет более высокий приоритет, чем vLEDTask,
-//        но vTaskDelay всё равно будет отдавать управление другим задачам */
-
-//     /* Здесь можно добавить логику, например, переключение другого пина */
-//     // HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
-
-//     /* Задержка 1000 мс */
-//     vTaskDelay(pdMS_TO_TICKS(10));
-//     taskYIELD();
-//   }
-// }
-
-/**
- * @brief  Хук для задачи Idle (вызывается, когда нет активных задач)
- * @note   Требует configUSE_IDLE_HOOK = 1 в FreeRTOSConfig.h
- */
-void vApplicationIdleHook(void)
-{
-  /* Можно добавить низкоприоритетные операции или переход в сон */
-  /* В нашем конфиге этот хук отключен, но оставим заглушку на будущее */
-}
-
-/**
- * @brief  Хук переполнения стека (вызывается при обнаружении переполнения)
- * @param  xTask: хендл задачи, где произошло переполнение
- * @param  pcTaskName: имя задачи
- * @note   Требует configCHECK_FOR_STACK_OVERFLOW = 1 или 2
- */
-void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
-{
-  /* Останавливаем выполнение и ждем отладчика */
-  taskDISABLE_INTERRUPTS();
-  for (;;)
-    ;
-}
-
-/**
- * @brief  Хук ошибки выделения памяти
- * @note   Требует configUSE_MALLOC_FAILED_HOOK = 1
- */
-void vApplicationMallocFailedHook(void)
-{
-  /* Останавливаем выполнение */
-  taskDISABLE_INTERRUPTS();
-  for (;;)
-    ;
-}
-
-/*
-┌─────────────────────────────────────────────────────────────┐
-│                     STM32F411 Clock Tree                    │
-├─────────────────────────────────────────────────────────────┤
-│  HSE (8MHz) → PLL → SYSCLK (100 MHz) → Ядро (CPU)           │
-│                                      │                      │
-│                                      ├─▶ AHB (HCLK) 100 MHz │
-│                                      │   ├─▶ RAM, Flash, DMA│
-│                                      │   ├─▶ GPIO           │       ├─▶ USART1, USART6│
-│                                      │       └─▶ TIM10-11   │
-│                                      │                      │
-│                                      └─▶ APB1 (PCLK1) 50 MHz│
-│                                          ├─▶ **USART2**     │
-│                                          ├─▶ I2C, SPI2-3    │
-│                                          └─▶ TIM2-5         │
-└─────────────────────────────────────────────────────────────┘
-
-
-                     ┌─────────────────────────────────────┐
-                     │              PLL (VCO)              │
-                     │            200 МГц (N=200)          │
-                     └──────────────────┬──────────────────┘
-                                        │
-                        ┌───────────────┴───────────────┐
-                        │                               │
-                  [ / PLLP=2 ]                    [ / PLLQ=4 ]
-                        │                               │
-                        ▼                               ▼
-                  ┌───────────┐                   ┌───────────┐
-                  │  SYSCLK   │                   │   USB     │
-                  │  100 МГц  │                   │  48 МГц   │
-                  └─────┬─────┘                   └───────────┘
-                        │
-                        ▼
-                  ┌───────────┐
-                  │    AHB    │ HCLK (System Bus)
-                  │  100 МГц  │
-                  └─────┬─────┘
-                        │
-        ┌───────────────┼───────────────┐
-        │               │               │
-        ▼               ▼               ▼
-   ┌─────────┐    ┌───────────┐   ┌───────────┐
-   │  CPU    │    │   APB2    │   │   APB1    │
-   │  RAM    │    │ 100 МГц   │   │  50 МГц   │
-   │  Flash  │    │ (Быстрая) │   │(Медленная)│
-   │  DMA    │    └─────┬─────┘   └─────┬─────┘
-   │  GPIO   │          │               │
-   └─────────┘    ┌─────┴─────┐   ┌─────┴──────────┐
-                  │           │   │                │
-                  ▼           ▼   ▼                ▼
-              USART1      SPI1  USART2          I2C1/2/3
-              ADC1        TIM1  TIM2            TIM3/4/5
-
-*/
-static void SystemClock_Config(void)
-{
-  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
-
-  __HAL_RCC_PWR_CLK_ENABLE();
-
-  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
-
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLM = 8;
-  RCC_OscInitStruct.PLL.PLLN = 200;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLQ = 4;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
-  {
-    Error_Handler();
-  }
-}
-
-/**
- * @brief  This function is executed in case of error occurrence.
- * @param  None
- * @retval None
- */
-static void Error_Handler(void)
-{
-  while (1)
-  {
-  }
-}
-
-#ifdef USE_FULL_ASSERT
-/**
- * @brief  Reports the name of the source file and the source line number
- *         where the assert_param error has occurred.
- * @param  file: pointer to the source file name
- * @param  line: assert_param error line source number
- * @retval None
- */
-void assert_failed(uint8_t *file, uint32_t line)
-{
-  /* User can add his own implementation to report the file name and line number,
-     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-
-  /* Infinite loop */
-  while (1)
-  {
-  }
-}
-#endif
-
-/**
- * @}
- */
-
-/**
- * @}
- */
+// Заглушки для newlib
+int _close(int file) { return -1; }
+int _fstat(int file, struct stat *st) { st->st_mode = S_IFCHR; return 0; }
+int _isatty(int file) { return 1; }
+int _lseek(int file, int ptr, int dir) { return 0; }
+int _read(int file, char *ptr, int len) { return 0; }
+void _exit(int status) { while(1); }
+int _kill(int pid, int sig) { return -1; }
+int _getpid(void) { return 1; }
+void _init(void) {}
