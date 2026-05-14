@@ -134,7 +134,7 @@ int main(void)
     
     char *wifi_ssid = "Galaxy";
     char *wifi_pass = "qpalzmthou102";
-    char *ntfy_topic = "myalarm123";
+    char *ntfy_topic = "";
     
     HAL_Delay(500);
     
