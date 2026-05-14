@@ -2,21 +2,24 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "STM32 Debug",
-            "type": "cortex-debug",
+            "name": "Cortex Debug",
+            "cwd": "${workspaceFolder}",
+            "executable": "build/nucleo-blink.elf",
             "request": "launch",
+            "type": "cortex-debug",
             "servertype": "openocd",
-            "executable": "${workspaceFolder}/build/nucleo-blink.elf",
-            "gdbPath": "/usr/bin/gdb-multiarch",
-            "svdFile": "${workspaceFolder}/STM32F411.svd",
-            "serverpath": "/usr/bin/openocd",
             "configFiles": [
                 "interface/stlink.cfg",
                 "target/stm32f4x.cfg"
             ],
-            "runToEntryPoint": "Reset_Handler",
-            "cwd": "${workspaceFolder}",
-            "preLaunchTask": "build"
+            "gdbPath": "/usr/bin/gdb",
+            "runToEntryPoint": "main",
+            "svdFile": "STM32F411.svd",
+            "runToEntryPoint": "main",
+            "liveWatch": {
+                "enabled": true,
+                "samplesPerSecond": 4
+            }
         }
     ]
 }

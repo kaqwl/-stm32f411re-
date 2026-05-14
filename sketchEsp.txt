@@ -1,0 +1,73 @@
+#include <ESP8266WiFi.h>
+
+void setup() {
+    Serial.begin(115200);
+    delay(100);
+    Serial.println("ready");
+}
+
+void loop() {
+    if(Serial.available()) {
+        String s = Serial.readStringUntil('\r');
+        s.trim();
+        if(s == "AT") Serial.println("OK");
+        else if(s == "AT+CWMODE=1") Serial.println("OK");
+        else if(s.startsWith("AT+CWJAP=")) {
+            int q1 = s.indexOf('"');
+            int q2 = s.indexOf('"', q1+1);
+            int q3 = s.indexOf('"', q2+1);
+            int q4 = s.indexOf('"', q3+1);
+            String ssid = s.substring(q1+1, q2);
+            String pass = s.substring(q3+1, q4);
+            
+            WiFi.begin(ssid.c_str(), pass.c_str());
+            int t = 0;
+            while(WiFi.status() != WL_CONNECTED && t < 20) { delay(500); t++; }
+            
+            if(WiFi.status() == WL_CONNECTED) {
+                Serial.println("WIFI CONNECTED");
+                Serial.println("WIFI GOT IP");
+                Serial.println("OK");
+            } else Serial.println("FAIL");
+        }
+        else if(s.startsWith("AT+NTFY=")) {
+            // Формат: AT+NTFY=топик,текст
+            String args = s.substring(8);
+            int c = args.indexOf(',');
+            String topic = args.substring(0, c);
+            String text = args.substring(c+1);
+            
+            // Кодируем пробелы
+            text.replace(" ", "%20");
+            
+            WiFiClient client;
+            Serial.print("Connecting to ntfy.sh... ");
+            if(client.connect("ntfy.sh", 80)) {
+                Serial.println("Connected!");
+                String http = "POST /" + topic + " HTTP/1.1\r\n";
+                http += "Host: ntfy.sh\r\n";
+                http += "Content-Type: text/plain\r\n";
+                http += "Content-Length: " + String(text.length()) + "\r\n";
+                http += "Connection: close\r\n\r\n";
+                http += text;
+                
+                client.print(http);
+                
+                uint32_t start = millis();
+                while(client.connected() && millis() - start < 3000) {
+                    if(client.available()) {
+                        char c = client.read();
+                        Serial.write(c);
+                    }
+                }
+                Serial.println();
+                client.stop();
+                Serial.println("OK");
+            } else {
+                Serial.println("Failed!");
+                Serial.println("ERROR");
+            }
+        }
+        else Serial.println("ERROR");
+    }
+}
