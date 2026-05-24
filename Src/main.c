@@ -11,14 +11,20 @@ volatile uint8_t motion_detected = 0;
 char uart_rx_buffer[512];
 uint16_t uart_rx_index = 0;
 
+int wifi_connected = 0;
+char *wifi_ssid = "Galaxy";
+char *wifi_pass = "qpalzmthou102";
+char *ntfy_topic = "myalarm123";
+
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_USART2_UART_Init(void);
 void ESP_SendCommand(char *cmd);
-int ESP_WaitFor(char *expected, uint32_t timeout_ms);
+void ESP_ClearBuffer(void);
+int ESP_WaitFor(const char *expected, uint32_t timeout_ms);
 int ESP_Test(void);
-int ESP_ConnectWiFi(char *ssid, char *pass);
+int ESP_ConnectWiFi(void);
 int SendNtfy(char *topic, char *text);
 
 int _write(int file, char *ptr, int len)
@@ -48,7 +54,23 @@ void ESP_SendCommand(char *cmd)
     HAL_UART_Transmit(&huart1, (uint8_t*)buf, strlen(buf), 2000);
 }
 
-int ESP_WaitFor(char *expected, uint32_t timeout_ms)
+void ESP_ClearBuffer(void)
+{
+    // Сбрасываем программный буфер
+    uart_rx_index = 0;
+    memset(uart_rx_buffer, 0, sizeof(uart_rx_buffer));
+    // Дополнительно вычитываем аппаратный буфер UART, если там что-то застряло
+    uint32_t timeout = HAL_GetTick() + 50;
+    while(HAL_GetTick() < timeout) {
+        if(USART1->SR & USART_SR_RXNE) {
+            volatile uint8_t dummy = USART1->DR; // просто читаем и отбрасываем
+            (void)dummy;
+        }
+    }
+}
+
+// Ожидает конкретную строку в ответе (только одну)
+int ESP_WaitFor(const char *expected, uint32_t timeout_ms)
 {
     uint32_t start = HAL_GetTick();
     while((HAL_GetTick() - start) < timeout_ms) {
@@ -60,66 +82,72 @@ int ESP_WaitFor(char *expected, uint32_t timeout_ms)
             }
             if(strstr(uart_rx_buffer, expected) != NULL) {
                 printf("[ESP] RX: %s\r\n", uart_rx_buffer);
-                uart_rx_index = 0;
-                memset(uart_rx_buffer, 0, sizeof(uart_rx_buffer));
                 return 1;
             }
         }
     }
-    printf("[ESP] Timeout: %s. Buffer: %s\r\n", expected, uart_rx_buffer);
-    uart_rx_index = 0;
-    memset(uart_rx_buffer, 0, sizeof(uart_rx_buffer));
+    printf("[ESP] Timeout (%s). Buffer: %s\r\n", expected, uart_rx_buffer);
     return 0;
 }
 
 int ESP_Test(void)
 {
     printf("[INIT] Testing ESP-01...\r\n");
-    uart_rx_index = 0;
-    memset(uart_rx_buffer, 0, sizeof(uart_rx_buffer));
+    ESP_ClearBuffer();
     ESP_SendCommand("AT");
-    return ESP_WaitFor("OK", 2000);
+    if(ESP_WaitFor("OK", 2000)) return 1;
+    return 0;
 }
 
-int ESP_ConnectWiFi(char *ssid, char *pass)
+int ESP_ConnectWiFi(void)
 {
     char cmd[128];
-    uart_rx_index = 0;
-    memset(uart_rx_buffer, 0, sizeof(uart_rx_buffer));
+    printf("[WiFi] Connecting to: %s\r\n", wifi_ssid);
 
-    printf("[WiFi] Connecting to: %s\r\n", ssid);
+    // CWMODE
+    ESP_ClearBuffer();
     ESP_SendCommand("AT+CWMODE=1");
-    HAL_Delay(500);
-    snprintf(cmd, sizeof(cmd), "AT+CWJAP=\"%s\",\"%s\"", ssid, pass);
+    if(!ESP_WaitFor("OK", 2000)) {
+        printf("[WiFi] CWMODE failed\r\n");
+        return 0;
+    }
+
+    // CWJAP
+    snprintf(cmd, sizeof(cmd), "AT+CWJAP=\"%s\",\"%s\"", wifi_ssid, wifi_pass);
+    ESP_ClearBuffer();
     ESP_SendCommand(cmd);
+    // Ответ может содержать длинный вывод подключения, ждём "OK" или "FAIL"
     if(ESP_WaitFor("OK", 15000)) {
         printf("[WiFi] Connected!\r\n");
         HAL_Delay(2000);
-        // Проверка интернета
-        uart_rx_index = 0;
-        memset(uart_rx_buffer, 0, sizeof(uart_rx_buffer));
+
+        // Пинг для уверенности
+        ESP_ClearBuffer();
         ESP_SendCommand("AT+PING=\"8.8.8.8\"");
         if(ESP_WaitFor("+PING:OK", 5000))
             printf("[WiFi] Internet: OK\r\n");
         else
             printf("[WiFi] Internet: FAILED\r\n");
 
+        wifi_connected = 1;
         return 1;
+    } else {
+        // Мог быть ответ FAIL
+        printf("[WiFi] Failed! Buffer: %s\r\n", uart_rx_buffer);
+        wifi_connected = 0;
+        return 0;
     }
-    printf("[WiFi] Failed!\r\n");
-    return 0;
 }
 
 int SendNtfy(char *topic, char *text)
 {
-    uart_rx_index = 0;
-    memset(uart_rx_buffer, 0, sizeof(uart_rx_buffer));
-    
     char cmd[256];
     snprintf(cmd, sizeof(cmd), "AT+NTFY=%s,%s", topic, text);
+    ESP_ClearBuffer();
     ESP_SendCommand(cmd);
-    
-    if(ESP_WaitFor("OK", 10000)) {
+
+    // Ждём OK в ответе (окончательный успех) или ERROR
+    if(ESP_WaitFor("OK", 12000)) {
         printf("[ALARM] Ntfy sent!\r\n");
         return 1;
     }
@@ -134,43 +162,70 @@ int main(void)
     MX_GPIO_Init();
     MX_USART1_UART_Init();
     MX_USART2_UART_Init();
-    
+
     printf("\r\n========================================\r\n");
-    printf("  STM32F411 IoT ALARM SYSTEM v3.0 (Ntfy)\r\n");
+    printf("  STM32F411 IoT ALARM SYSTEM v3.2 (stable)\r\n");
     printf("========================================\r\n");
     printf("System Clock: %lu Hz\r\n", HAL_RCC_GetSysClockFreq());
     printf("----------------------------------------\r\n");
-    
-    char *wifi_ssid = "Galaxy";
-    char *wifi_pass = "qpalzmthou102";
-    char *ntfy_topic = "myalarm123";
-    
+
     HAL_Delay(500);
-    
-    printf("[INIT] Testing ESP-01...\r\n");
+
     if(ESP_Test())
         printf("[INIT] ESP-01: ONLINE\r\n");
     else
         printf("[INIT] ESP-01: OFFLINE\r\n");
-    
+
+    if(!ESP_ConnectWiFi()) {
+        printf("[INIT] WiFi connection failed. System halted.\r\n");
+        while(1);
+    }
+
     printf("----------------------------------------\r\n");
     printf("  SYSTEM READY. Waiting for motion...\r\n");
     printf("========================================\r\n\r\n");
-    
+
     while(1) {
         if(motion_detected) {
             motion_detected = 0;
             printf("[ALARM] Processing...\r\n");
-            
-            if(ESP_ConnectWiFi(wifi_ssid, wifi_pass)) {
+
+            // Проверяем, жив ли WiFi (пинг)
+            ESP_ClearBuffer();
+            ESP_SendCommand("AT+PING=\"8.8.8.8\"");
+            if(!ESP_WaitFor("+PING:OK", 5000)) {
+                printf("[ALARM] WiFi lost, reconnecting...\r\n");
+                wifi_connected = 0;
+                ESP_ClearBuffer();  // очистим мусор после неудачного пинга
+                if(!ESP_ConnectWiFi()) {
+                    printf("[ALARM] Reconnection failed, waiting for next try\r\n");
+                }
+            }
+
+            if(wifi_connected) {
                 char msg[64];
                 snprintf(msg, sizeof(msg), "ALARM! Motion at %lums", HAL_GetTick());
-                if(SendNtfy(ntfy_topic, msg))
+
+                int sent = SendNtfy(ntfy_topic, msg);
+                if(sent) {
                     printf("[ALARM] Sent OK!\r\n");
-                else
-                    printf("[ALARM] Send failed\r\n");
+                } else {
+                    // Неудача отправки – возможно, временная проблема сети, ждём и пробуем ещё раз без переподключения
+                    printf("[ALARM] Send failed, retrying after delay...\r\n");
+                    HAL_Delay(500);  // даём ESP остыть
+                    sent = SendNtfy(ntfy_topic, msg);
+                    if(!sent) {
+                        printf("[ALARM] Second attempt failed, trying reconnect...\r\n");
+                        wifi_connected = 0;
+                        ESP_ConnectWiFi();
+                        if(wifi_connected) {
+                            HAL_Delay(500);
+                            SendNtfy(ntfy_topic, msg);
+                        }
+                    }
+                }
             }
-            
+
             printf("[ALARM] Waiting 7s cooldown...\r\n");
             HAL_Delay(7000);
             printf("[ALARM] Ready.\r\n");
@@ -178,6 +233,7 @@ int main(void)
     }
 }
 
+// --- Остальной код без изменений ---
 void SystemClock_Config(void)
 {
     RCC_OscInitTypeDef RCC_OscInitStruct = {0};
