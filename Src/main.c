@@ -95,6 +95,15 @@ int ESP_ConnectWiFi(char *ssid, char *pass)
     if(ESP_WaitFor("OK", 15000)) {
         printf("[WiFi] Connected!\r\n");
         HAL_Delay(2000);
+        // Проверка интернета
+        uart_rx_index = 0;
+        memset(uart_rx_buffer, 0, sizeof(uart_rx_buffer));
+        ESP_SendCommand("AT+PING=\"8.8.8.8\"");
+        if(ESP_WaitFor("+PING:OK", 5000))
+            printf("[WiFi] Internet: OK\r\n");
+        else
+            printf("[WiFi] Internet: FAILED\r\n");
+
         return 1;
     }
     printf("[WiFi] Failed!\r\n");
@@ -134,7 +143,7 @@ int main(void)
     
     char *wifi_ssid = "Galaxy";
     char *wifi_pass = "qpalzmthou102";
-    char *ntfy_topic = "";
+    char *ntfy_topic = "myalarm123";
     
     HAL_Delay(500);
     

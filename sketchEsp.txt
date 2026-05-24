@@ -1,17 +1,76 @@
 #include <ESP8266WiFi.h>
+#include <WiFiClientSecure.h>
+
+const char* ntfy_servers[] = {
+    "ntfy.sh",
+    "ntfy.uz",
+    "ntfy.envs.net",
+    "ntfy.adminforge.de"
+};
+const int num_servers = 4;
 
 void setup() {
     Serial.begin(115200);
     delay(100);
-    Serial.println("ready");
+    Serial.println("\r\nESP-01 Ready! (HTTPS mode)");
+    Serial.println("Commands: AT, AT+CWMODE=1, AT+CWJAP, AT+CIFSR, AT+PING, AT+NTFY, AT+SCAN");
 }
 
 void loop() {
     if(Serial.available()) {
         String s = Serial.readStringUntil('\r');
         s.trim();
-        if(s == "AT") Serial.println("OK");
-        else if(s == "AT+CWMODE=1") Serial.println("OK");
+        
+        if(s == "AT") {
+            Serial.println("OK");
+        }
+        else if(s == "AT+CWMODE=1") {
+            Serial.println("OK");
+        }
+        else if(s == "AT+CIFSR") {
+            Serial.print("+CIFSR:STAIP,\"");
+            Serial.print(WiFi.localIP());
+            Serial.println("\"");
+            Serial.print("+CIFSR:STAMAC,\"");
+            Serial.print(WiFi.macAddress());
+            Serial.println("\"");
+            Serial.println("OK");
+        }
+        else if(s == "AT+PING=\"8.8.8.8\"") {
+            if(WiFi.status() == WL_CONNECTED) {
+                WiFiClient test;
+                if(test.connect("8.8.8.8", 53)) {
+                    Serial.println("+PING:OK");
+                    test.stop();
+                } else {
+                    Serial.println("+PING:TIMEOUT");
+                }
+            } else {
+                Serial.println("ERROR: Not connected to WiFi");
+            }
+        }
+        else if(s.startsWith("AT+CIPSTART=")) {
+            int q1 = s.indexOf('"');
+            int q2 = s.indexOf('"', q1+1);
+            int q3 = s.indexOf('"', q2+1);
+            int q4 = s.indexOf('"', q3+1);
+            String host = s.substring(q3+1, q4);
+            int port = s.substring(q4+2).toInt();
+            
+            WiFiClient test;
+            Serial.print("Connecting to ");
+            Serial.print(host);
+            Serial.print(":");
+            Serial.print(port);
+            Serial.print("... ");
+            if(test.connect(host.c_str(), port)) {
+                Serial.println("CONNECT");
+                test.stop();
+                Serial.println("OK");
+            } else {
+                Serial.println("ERROR");
+            }
+        }
         else if(s.startsWith("AT+CWJAP=")) {
             int q1 = s.indexOf('"');
             int q2 = s.indexOf('"', q1+1);
@@ -20,54 +79,119 @@ void loop() {
             String ssid = s.substring(q1+1, q2);
             String pass = s.substring(q3+1, q4);
             
+            Serial.print("Connecting to: ");
+            Serial.println(ssid);
+            
             WiFi.begin(ssid.c_str(), pass.c_str());
+            
             int t = 0;
-            while(WiFi.status() != WL_CONNECTED && t < 20) { delay(500); t++; }
+            while(WiFi.status() != WL_CONNECTED && t < 30) {
+                delay(500);
+                Serial.print(".");
+                t++;
+            }
+            Serial.println();
             
             if(WiFi.status() == WL_CONNECTED) {
                 Serial.println("WIFI CONNECTED");
+                Serial.print("IP: ");
+                Serial.println(WiFi.localIP());
+                Serial.print("Gateway: ");
+                Serial.println(WiFi.gatewayIP());
                 Serial.println("WIFI GOT IP");
                 Serial.println("OK");
-            } else Serial.println("FAIL");
+            } else {
+                Serial.print("FAIL (status: ");
+                Serial.print(WiFi.status());
+                Serial.println(")");
+            }
+        }
+        else if(s == "AT+SCAN") {
+            int n = WiFi.scanNetworks();
+            Serial.print("Found ");
+            Serial.print(n);
+            Serial.println(" networks:");
+            for(int i = 0; i < n && i < 10; i++) {
+                Serial.print("  ");
+                Serial.print(WiFi.SSID(i));
+                Serial.print(" (");
+                Serial.print(WiFi.RSSI(i));
+                Serial.println(" dBm)");
+            }
+            Serial.println("OK");
         }
         else if(s.startsWith("AT+NTFY=")) {
-            // Формат: AT+NTFY=топик,текст
             String args = s.substring(8);
             int c = args.indexOf(',');
             String topic = args.substring(0, c);
             String text = args.substring(c+1);
             
-            // Кодируем пробелы
-            text.replace(" ", "%20");
+            if(WiFi.status() != WL_CONNECTED) {
+                Serial.println("ERROR: WiFi not connected");
+                return;
+            }
             
-            WiFiClient client;
-            Serial.print("Connecting to ntfy.sh... ");
-            if(client.connect("ntfy.sh", 80)) {
-                Serial.println("Connected!");
-                String http = "POST /" + topic + " HTTP/1.1\r\n";
-                http += "Host: ntfy.sh\r\n";
-                http += "Content-Type: text/plain\r\n";
-                http += "Content-Length: " + String(text.length()) + "\r\n";
-                http += "Connection: close\r\n\r\n";
-                http += text;
+            // Отладочный резолвинг DNS
+            IPAddress ip;
+            bool dns_ok = WiFi.hostByName("ntfy.sh", ip);
+            Serial.print("DNS ntfy.sh -> ");
+            if(dns_ok) Serial.println(ip.toString());
+            else       Serial.println("FAILED");
+            
+            bool sent = false;
+            for(int i = 0; i < num_servers && !sent; i++) {
+                WiFiClientSecure client;
+                client.setInsecure();  // Отключаем проверку сертификата (для теста)
                 
-                client.print(http);
+                Serial.print("Trying ");
+                Serial.print(ntfy_servers[i]);
+                Serial.print(" (HTTPS)... ");
                 
-                uint32_t start = millis();
-                while(client.connected() && millis() - start < 3000) {
-                    if(client.available()) {
-                        char c = client.read();
-                        Serial.write(c);
+                if(client.connect(ntfy_servers[i], 443)) {
+                    Serial.println("Connected!");
+                    
+                    String http = "POST /" + topic + " HTTP/1.1\r\n";
+                    http += "Host: " + String(ntfy_servers[i]) + "\r\n";
+                    http += "Content-Type: text/plain\r\n";
+                    http += "Content-Length: " + String(text.length()) + "\r\n";
+                    http += "Connection: close\r\n\r\n";
+                    http += text;
+                    
+                    client.print(http);
+                    
+                    unsigned long start = millis();
+                    String response = "";
+                    while(client.connected() && millis() - start < 3000) {
+                        if(client.available()) {
+                            response += (char)client.read();
+                        }
                     }
+                    client.stop();
+                    
+                    Serial.print("Response: ");
+                    Serial.println(response.substring(0, 50));
+                    
+                    if(response.indexOf("200 OK") > 0 || response.indexOf("200") > 0) {
+                        Serial.println("OK");
+                        sent = true;
+                    } else {
+                        Serial.println("Server returned error");
+                    }
+                } else {
+                    Serial.println("Failed");
                 }
-                Serial.println();
-                client.stop();
+            }
+            
+            if(sent) {
                 Serial.println("OK");
             } else {
-                Serial.println("Failed!");
-                Serial.println("ERROR");
+                Serial.println("ERROR: All servers failed");
             }
         }
-        else Serial.println("ERROR");
+        else {
+            Serial.print("Unknown command: ");
+            Serial.println(s);
+            Serial.println("ERROR");
+        }
     }
 }
